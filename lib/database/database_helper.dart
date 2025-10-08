@@ -112,28 +112,31 @@ class DatabaseHelper {
       )
     ''');
 
-    // Create Travel Budget table
+    // Create Trips table
     await db.execute('''
-      CREATE TABLE ${AppConstants.travelBudgetTable} (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+      CREATE TABLE trips (
+        id TEXT PRIMARY KEY,
         destination TEXT NOT NULL,
-        amount REAL NOT NULL,
+        budget REAL NOT NULL,
         start_date TEXT NOT NULL,
         end_date TEXT NOT NULL,
+        status TEXT NOT NULL,
         created_at TEXT NOT NULL
       )
     ''');
 
     // Create Travel Expenses table
     await db.execute('''
-      CREATE TABLE ${AppConstants.travelExpensesTable} (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        travel_budget_id INTEGER NOT NULL,
-        category TEXT NOT NULL,
+      CREATE TABLE travel_expenses (
+        id TEXT PRIMARY KEY,
+        trip_id TEXT NOT NULL,
+        description TEXT NOT NULL,
         amount REAL NOT NULL,
+        category TEXT NOT NULL,
         date TEXT NOT NULL,
-        description TEXT,
-        FOREIGN KEY (travel_budget_id) REFERENCES ${AppConstants.travelBudgetTable} (id)
+        notes TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (trip_id) REFERENCES trips (id)
       )
     ''');
 

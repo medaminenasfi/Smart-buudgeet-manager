@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../providers/providers.dart';
+import '../providers/travel_provider.dart';
 import '../widgets/budget_card.dart';
 import '../widgets/custom_app_bar.dart';
 import '../utils/constants.dart';
@@ -31,13 +32,13 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final monthlyProvider = Provider.of<MonthlyBudgetProvider>(context, listen: false);
       final specialProvider = Provider.of<SpecialPurchaseProvider>(context, listen: false);
-      final travelProvider = Provider.of<TravelBudgetProvider>(context, listen: false);
+      final travelProvider = Provider.of<TravelProvider>(context, listen: false);
       final savingsProvider = Provider.of<SavingsProvider>(context, listen: false);
 
       await Future.wait([
         monthlyProvider.loadMonthlyData(_currentDate.month, _currentDate.year),
         specialProvider.loadSpecialPurchaseData(_currentDate.month, _currentDate.year),
-        travelProvider.loadTravelBudgets(),
+        travelProvider.loadTravelData(),
         savingsProvider.loadSavingsGoals(),
       ]);
     } catch (e) {
@@ -187,13 +188,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTravelBudgetCard() {
-    return Consumer<TravelBudgetProvider>(
+    return Consumer<TravelProvider>(
       builder: (context, provider, child) {
-        // For travel, we'll show the most recent travel budget
-        final budget = provider.selectedBudget?.amount ?? 0.0;
+        // For travel, we'll show the current trip budget
+        final budget = provider.currentTrip?.budget ?? 0.0;
         final spent = provider.totalSpent;
-        final remaining = provider.remainingBudget;
-        final percentage = provider.budgetPercentageUsed;
+        final remaining = budget - spent;
+        final percentage = budget > 0 ? (spent / budget * 100).clamp(0.0, 100.0) : 0.0;
 
         return BudgetCard(
           title: 'Travel Budget',
@@ -204,9 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
           color: AppConstants.travelColor,
           icon: Icons.flight,
           onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Travel Budget screen coming soon!')),
-            );
+            Navigator.pushNamed(context, '/travel');
           },
         );
       },
