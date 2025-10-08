@@ -179,9 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
           color: AppConstants.specialColor,
           icon: Icons.shopping_bag,
           onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Special Purchases screen coming soon!')),
-            );
+            Navigator.pushNamed(context, '/special-purchases');
           },
         );
       },

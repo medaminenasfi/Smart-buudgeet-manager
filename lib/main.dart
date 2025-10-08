@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'providers/providers.dart';
 import 'screens/home_screen.dart';
 import 'screens/monthly_expenses_screen.dart';
+import 'screens/special_purchases_screen.dart';
 import 'utils/constants.dart';
 
 void main() {
@@ -44,6 +45,7 @@ class SmartBudgetManagerApp extends StatelessWidget {
         routes: {
           '/home': (context) => const HomeScreen(),
           '/monthly-expenses': (context) => const MonthlyExpensesScreen(),
+          '/special-purchases': (context) => const SpecialPurchasesScreen(),
           // We'll add more routes as we create the other screens
         },
       ),
