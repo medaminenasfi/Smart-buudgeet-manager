@@ -39,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
         monthlyProvider.loadMonthlyData(_currentDate.month, _currentDate.year),
         specialProvider.loadSpecialPurchaseData(_currentDate.month, _currentDate.year),
         travelProvider.loadTravelData(),
-        savingsProvider.loadSavingsGoals(),
+        savingsProvider.loadSavingsData(),
       ]);
     } catch (e) {
       if (mounted) {
@@ -215,24 +215,22 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSavingsCard() {
     return Consumer<SavingsProvider>(
       builder: (context, provider, child) {
-        // For savings, we'll show the most recent goal
-        final goal = provider.selectedGoal?.targetAmount ?? 0.0;
-        final saved = provider.totalSaved;
-        final remaining = provider.remainingToSave;
-        final percentage = provider.savingsPercentage;
+        // For savings, we'll show aggregate data
+        final totalTarget = provider.totalTargetAmount;
+        final totalSaved = provider.totalSavedAmount;
+        final remaining = totalTarget - totalSaved;
+        final percentage = totalTarget > 0 ? (totalSaved / totalTarget * 100).clamp(0.0, 100.0) : 0.0;
 
         return BudgetCard(
-          title: 'Savings Goal',
-          totalBudget: goal.toStringAsFixed(2),
-          spent: saved.toStringAsFixed(2),
+          title: 'Savings Goals',
+          totalBudget: totalTarget.toStringAsFixed(2),
+          spent: totalSaved.toStringAsFixed(2),
           remaining: remaining.toStringAsFixed(2),
           percentage: percentage,
           color: AppConstants.savingsColor,
           icon: Icons.savings,
           onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Savings Goals screen coming soon!')),
-            );
+            Navigator.pushNamed(context, '/savings');
           },
         );
       },

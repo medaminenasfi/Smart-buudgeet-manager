@@ -140,27 +140,31 @@ class DatabaseHelper {
       )
     ''');
 
-    // Create Savings Goal table
+    // Create Savings Goals table
     await db.execute('''
-      CREATE TABLE ${AppConstants.savingsGoalTable} (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        goal_name TEXT NOT NULL,
+      CREATE TABLE savings_goals (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
         target_amount REAL NOT NULL,
         target_date TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        description TEXT
+        category TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
       )
     ''');
 
     // Create Savings Records table
     await db.execute('''
-      CREATE TABLE ${AppConstants.savingsRecordsTable} (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        savings_goal_id INTEGER NOT NULL,
+      CREATE TABLE savings_records (
+        id TEXT PRIMARY KEY,
+        goal_id TEXT NOT NULL,
         amount REAL NOT NULL,
+        description TEXT DEFAULT '',
         date TEXT NOT NULL,
-        description TEXT,
-        FOREIGN KEY (savings_goal_id) REFERENCES ${AppConstants.savingsGoalTable} (id)
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (goal_id) REFERENCES savings_goals (id)
       )
     ''');
   }

@@ -1,249 +1,309 @@
 import 'package:flutter/foundation.dart';
-import '../models/models.dart';
+import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
-import '../database/database_extensions.dart';
+import '../models/savings_models.dart';
 
 class SavingsProvider with ChangeNotifier {
   final DatabaseHelper _databaseHelper = DatabaseHelper();
   
-  List<SavingsGoal> _savingsGoals = [];
+  List<SavingsGoal> _goals = [];
+  List<SavingsRecord> _records = [];
   SavingsGoal? _selectedGoal;
-  List<SavingsRecord> _savingsRecords = [];
   bool _isLoading = false;
-  
-  // Getters
-  List<SavingsGoal> get savingsGoals => _savingsGoals;
+
+  // Web storage fallback
+  final Map<String, SavingsGoal> _webGoals = {};
+  final Map<String, SavingsRecord> _webRecords = {};
+
+  List<SavingsGoal> get goals => _goals;
+  List<SavingsRecord> get records => _records;
   SavingsGoal? get selectedGoal => _selectedGoal;
-  List<SavingsRecord> get savingsRecords => _savingsRecords;
   bool get isLoading => _isLoading;
-  
-  double get totalSaved {
-    return _savingsRecords.fold(0.0, (sum, record) => sum + record.amount);
-  }
-  
-  double get remainingToSave {
-    if (_selectedGoal == null) return 0.0;
-    return _selectedGoal!.targetAmount - totalSaved;
-  }
-  
-  double get savingsPercentage {
-    if (_selectedGoal == null || _selectedGoal!.targetAmount == 0) return 0.0;
-    return (totalSaved / _selectedGoal!.targetAmount) * 100;
-  }
-  
-  bool get isGoalReached {
-    return savingsPercentage >= 100;
-  }
-  
-  int get daysUntilTarget {
-    if (_selectedGoal == null) return 0;
-    return _selectedGoal!.targetDate.difference(DateTime.now()).inDays;
-  }
-  
-  double get dailySavingsNeeded {
-    if (_selectedGoal == null || daysUntilTarget <= 0) return 0.0;
-    return remainingToSave / daysUntilTarget;
+
+  List<SavingsGoal> get activeGoals => 
+      _goals.where((goal) => goal.status == SavingsGoalStatus.active).toList();
+
+  List<SavingsGoal> get completedGoals => 
+      _goals.where((goal) => goal.status == SavingsGoalStatus.completed).toList();
+
+  List<SavingsGoal> get overdueGoals => 
+      _goals.where((goal) => goal.isOverdue).toList();
+
+  double get totalTargetAmount => 
+      activeGoals.fold(0.0, (sum, goal) => sum + goal.targetAmount);
+
+  double get totalSavedAmount {
+    double total = 0.0;
+    for (final goal in activeGoals) {
+      total += getCurrentAmount(goal.id);
+    }
+    return total;
   }
 
-  // Load all savings goals
-  Future<void> loadSavingsGoals() async {
+  Future<void> loadSavingsData() async {
+    if (_isLoading) return;
+    
     _isLoading = true;
     notifyListeners();
-    
+
     try {
-      _savingsGoals = await _databaseHelper.getSavingsGoals();
+      debugPrint('Loading savings data');
+
+      if (kIsWeb) {
+        debugPrint('Web platform detected - using in-memory storage');
+        
+        // Load from web storage
+        _goals = _webGoals.values.toList();
+        _records = _webRecords.values.toList();
+        
+        // Set selected goal to first active goal if none selected
+        if (_selectedGoal == null && activeGoals.isNotEmpty) {
+          _selectedGoal = activeGoals.first;
+        }
+        
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+      } else {
+        // Load from SQLite database
+        final database = await _databaseHelper.database;
+        
+        // Load goals
+        final goalsResult = await database.query('savings_goals');
+        _goals = goalsResult.map((map) => SavingsGoal.fromMap(map)).toList();
+        
+        // Load records
+        final recordsResult = await database.query('savings_records');
+        _records = recordsResult.map((map) => SavingsRecord.fromMap(map)).toList();
+        
+        // Set selected goal to first active goal if none selected
+        if (_selectedGoal == null && activeGoals.isNotEmpty) {
+          _selectedGoal = activeGoals.first;
+        }
+      }
+
+      // Sort goals by priority and creation date
+      _goals.sort((a, b) {
+        if (a.priority != b.priority) {
+          return b.priority.index.compareTo(a.priority.index);
+        }
+        return b.createdAt.compareTo(a.createdAt);
+      });
+
+      // Sort records by date (newest first)
+      _records.sort((a, b) => b.date.compareTo(a.date));
+
+      debugPrint('Goals loaded: ${_goals.length} goals');
+      debugPrint('Records loaded: ${_records.length} records');
+      debugPrint('Selected goal: ${_selectedGoal?.name ?? 'None'}');
+      
     } catch (e) {
-      debugPrint('Error loading savings goals: $e');
+      debugPrint('Database operation failed: $e');
+      // Initialize with empty data
+      _goals = [];
+      _records = [];
+      _selectedGoal = null;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // Select a specific savings goal and load its records
-  Future<void> selectSavingsGoal(int goalId) async {
-    _isLoading = true;
-    notifyListeners();
+  Future<void> createGoal(
+    String name,
+    String description,
+    double targetAmount,
+    DateTime targetDate,
+    SavingsGoalCategory category,
+    SavingsGoalPriority priority,
+  ) async {
+    final goalId = DateTime.now().millisecondsSinceEpoch.toString();
     
-    try {
-      _selectedGoal = await _databaseHelper.getSavingsGoalById(goalId);
-      _savingsRecords = await _databaseHelper.getSavingsRecords(goalId);
-    } catch (e) {
-      debugPrint('Error selecting savings goal: $e');
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
+    final goal = SavingsGoal(
+      id: goalId,
+      name: name,
+      description: description,
+      targetAmount: targetAmount,
+      targetDate: targetDate,
+      category: category,
+      priority: priority,
+      status: SavingsGoalStatus.active,
+      createdAt: DateTime.now(),
+    );
 
-  // Create new savings goal
-  Future<bool> createSavingsGoal(String goalName, double targetAmount, DateTime targetDate, {String? description}) async {
     try {
-      final goal = SavingsGoal(
-        goalName: goalName,
-        targetAmount: targetAmount,
-        targetDate: targetDate,
-        createdAt: DateTime.now(),
-        description: description,
-      );
-      
-      final id = await _databaseHelper.insertSavingsGoal(goal);
-      
-      final newGoal = SavingsGoal(
-        id: id,
-        goalName: goalName,
-        targetAmount: targetAmount,
-        targetDate: targetDate,
-        createdAt: DateTime.now(),
-        description: description,
-      );
-      
-      _savingsGoals.insert(0, newGoal);
-      notifyListeners();
-      return true;
-    } catch (e) {
-      debugPrint('Error creating savings goal: $e');
-      return false;
-    }
-  }
-
-  // Update savings goal
-  Future<bool> updateSavingsGoal(SavingsGoal goal) async {
-    try {
-      await _databaseHelper.updateSavingsGoal(goal);
-      
-      final index = _savingsGoals.indexWhere((g) => g.id == goal.id);
-      if (index != -1) {
-        _savingsGoals[index] = goal;
-        if (_selectedGoal?.id == goal.id) {
+      if (kIsWeb) {
+        _webGoals[goalId] = goal;
+        _goals = _webGoals.values.toList();
+        
+        if (_selectedGoal == null) {
+          _selectedGoal = goal;
+        }
+        
+      } else {
+        final database = await _databaseHelper.database;
+        await database.insert('savings_goals', goal.toMap());
+        _goals.add(goal);
+        
+        if (_selectedGoal == null) {
           _selectedGoal = goal;
         }
       }
-      
+
+      // Re-sort goals
+      _goals.sort((a, b) {
+        if (a.priority != b.priority) {
+          return b.priority.index.compareTo(a.priority.index);
+        }
+        return b.createdAt.compareTo(a.createdAt);
+      });
+
+      debugPrint('Goal created: ${goal.name}');
       notifyListeners();
-      return true;
+      
     } catch (e) {
-      debugPrint('Error updating savings goal: $e');
-      return false;
+      debugPrint('Error creating goal: $e');
     }
   }
 
-  // Delete savings goal
-  Future<bool> deleteSavingsGoal(int goalId) async {
-    try {
-      await _databaseHelper.deleteSavingsGoal(goalId);
-      
-      _savingsGoals.removeWhere((goal) => goal.id == goalId);
-      
-      if (_selectedGoal?.id == goalId) {
-        _selectedGoal = null;
-        _savingsRecords.clear();
-      }
-      
-      notifyListeners();
-      return true;
-    } catch (e) {
-      debugPrint('Error deleting savings goal: $e');
-      return false;
-    }
-  }
-
-  // Add savings record
-  Future<bool> addSavingsRecord(double amount, DateTime date, {String? description}) async {
-    if (_selectedGoal == null) return false;
+  Future<void> addSavingsRecord(
+    String goalId,
+    double amount,
+    String description,
+    DateTime date,
+  ) async {
+    final recordId = DateTime.now().millisecondsSinceEpoch.toString();
     
+    final record = SavingsRecord(
+      id: recordId,
+      goalId: goalId,
+      amount: amount,
+      description: description,
+      date: date,
+      createdAt: DateTime.now(),
+    );
+
     try {
-      final record = SavingsRecord(
-        savingsGoalId: _selectedGoal!.id!,
-        amount: amount,
-        date: date,
-        description: description,
-      );
+      if (kIsWeb) {
+        _webRecords[recordId] = record;
+        _records = _webRecords.values.toList();
+        
+      } else {
+        final database = await _databaseHelper.database;
+        await database.insert('savings_records', record.toMap());
+        _records.add(record);
+      }
+
+      // Sort records by date (newest first)
+      _records.sort((a, b) => b.date.compareTo(a.date));
+
+      // Check if goal is completed
+      final currentAmount = getCurrentAmount(goalId);
+      final goal = _goals.firstWhere((g) => g.id == goalId);
       
-      final id = await _databaseHelper.insertSavingsRecord(record);
-      
-      final newRecord = SavingsRecord(
-        id: id,
-        savingsGoalId: _selectedGoal!.id!,
-        amount: amount,
-        date: date,
-        description: description,
-      );
-      
-      _savingsRecords.insert(0, newRecord);
+      if (currentAmount >= goal.targetAmount && goal.status == SavingsGoalStatus.active) {
+        await completeGoal(goalId);
+      }
+
+      debugPrint('Savings record added: \$${amount.toStringAsFixed(2)} to $goalId');
       notifyListeners();
-      return true;
+      
     } catch (e) {
       debugPrint('Error adding savings record: $e');
-      return false;
     }
   }
 
-  // Update savings record
-  Future<bool> updateSavingsRecord(SavingsRecord record) async {
+  Future<void> completeGoal(String goalId) async {
     try {
-      await _databaseHelper.updateSavingsRecord(record);
-      
-      final index = _savingsRecords.indexWhere((r) => r.id == record.id);
-      if (index != -1) {
-        _savingsRecords[index] = record;
+      if (kIsWeb) {
+        final existingGoal = _webGoals[goalId];
+        if (existingGoal != null) {
+          _webGoals[goalId] = existingGoal.copyWith(status: SavingsGoalStatus.completed);
+          _goals = _webGoals.values.toList();
+          
+          if (_selectedGoal?.id == goalId) {
+            _selectedGoal = activeGoals.isNotEmpty ? activeGoals.first : null;
+          }
+        }
+        
+      } else {
+        final database = await _databaseHelper.database;
+        
+        await database.update(
+          'savings_goals',
+          {'status': SavingsGoalStatus.completed.name},
+          where: 'id = ?',
+          whereArgs: [goalId],
+        );
+        
+        final goalIndex = _goals.indexWhere((goal) => goal.id == goalId);
+        if (goalIndex != -1) {
+          _goals[goalIndex] = _goals[goalIndex].copyWith(status: SavingsGoalStatus.completed);
+          
+          if (_selectedGoal?.id == goalId) {
+            _selectedGoal = activeGoals.isNotEmpty ? activeGoals.first : null;
+          }
+        }
       }
-      
+
+      debugPrint('Goal completed: $goalId');
       notifyListeners();
-      return true;
+      
     } catch (e) {
-      debugPrint('Error updating savings record: $e');
-      return false;
+      debugPrint('Error completing goal: $e');
     }
   }
 
-  // Delete savings record
-  Future<bool> deleteSavingsRecord(int recordId) async {
-    try {
-      await _databaseHelper.deleteSavingsRecord(recordId);
-      _savingsRecords.removeWhere((record) => record.id == recordId);
-      
-      notifyListeners();
-      return true;
-    } catch (e) {
-      debugPrint('Error deleting savings record: $e');
-      return false;
-    }
+  void selectGoal(String goalId) {
+    _selectedGoal = _goals.firstWhere(
+      (goal) => goal.id == goalId,
+      orElse: () => _goals.isNotEmpty ? _goals.first : throw Exception('No goals found'),
+    );
+    notifyListeners();
   }
 
-  // Get recent savings records (last 10)
-  List<SavingsRecord> getRecentRecords() {
-    return _savingsRecords.take(10).toList();
-  }
-
-  // Get monthly savings total
-  double getMonthlySavings(int month, int year) {
-    return _savingsRecords
-        .where((record) => 
-            record.date.month == month && record.date.year == year)
+  double getCurrentAmount(String goalId) {
+    return _records
+        .where((record) => record.goalId == goalId)
         .fold(0.0, (sum, record) => sum + record.amount);
   }
 
-  // Get savings records for a specific month
-  List<SavingsRecord> getMonthlySavingsRecords(int month, int year) {
-    return _savingsRecords
-        .where((record) => 
-            record.date.month == month && record.date.year == year)
-        .toList();
+  List<SavingsRecord> getRecordsForGoal(String goalId) {
+    return _records.where((record) => record.goalId == goalId).toList();
   }
 
-  // Clear selected goal data
-  void clearSelectedGoal() {
-    _selectedGoal = null;
-    _savingsRecords.clear();
-    notifyListeners();
+  SavingsGoalWithProgress getGoalWithProgress(String goalId) {
+    final goal = _goals.firstWhere((g) => g.id == goalId);
+    final currentAmount = getCurrentAmount(goalId);
+    final records = getRecordsForGoal(goalId);
+    
+    return SavingsGoalWithProgress(
+      goal: goal,
+      currentAmount: currentAmount,
+      records: records,
+    );
   }
 
-  // Clear all data
-  void clearData() {
-    _savingsGoals.clear();
-    _selectedGoal = null;
-    _savingsRecords.clear();
-    notifyListeners();
+  List<SavingsGoalWithProgress> get goalsWithProgress {
+    return _goals.map((goal) => getGoalWithProgress(goal.id)).toList();
+  }
+
+  List<SavingsGoalWithProgress> get activeGoalsWithProgress {
+    return activeGoals.map((goal) => getGoalWithProgress(goal.id)).toList();
+  }
+
+  Map<SavingsGoalCategory, double> getCategorySavings() {
+    final categorySavings = <SavingsGoalCategory, double>{};
+    
+    for (final category in SavingsGoalCategory.values) {
+      categorySavings[category] = 0.0;
+    }
+    
+    for (final goal in activeGoals) {
+      final currentAmount = getCurrentAmount(goal.id);
+      categorySavings[goal.category] = 
+          (categorySavings[goal.category] ?? 0.0) + currentAmount;
+    }
+    
+    return categorySavings;
   }
 }
